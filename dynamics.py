@@ -6,8 +6,9 @@ import jax
 import jax.numpy as jnp
 from jax.lax import atan2
 from jax.tree_util import register_pytree_node_class
-
 import jaxlie
+
+from transform import translate_wrench
 
 
 @dataclass
@@ -32,11 +33,15 @@ class KiteModel:
     # aerodynamic forces are captured by the angle of attack and side slip angle coefficients
     velocity_coefficients = jnp.array([-0.15, -0.165, -0.002, 0, 0, 0])
 
+    # Positions of the tether attachments points in the kite frame
+    tether_attachments = jnp.array([
+        [0, 2.9, -0.5],
+        [0, -2.9, -0.5],
+    ])
 
 
 # @register_pytree_node_class
 class KiteState:
-
     def __init__(self, model, x):
         assert x.shape == (model.state_dimension,)
         self.model = model
@@ -46,7 +51,7 @@ class KiteState:
         )
         self.orientation = jaxlie.SO3.from_quaternion_xyzw(quat)
 
-    def get_orientation(self) -> jnp.ndarray:
+    def get_orientation(self) -> jaxlie.SO3:
         return self.orientation
 
     def get_position(self) -> jnp.ndarray:
@@ -58,8 +63,10 @@ class KiteState:
     def get_linear_velocity(self) -> jnp.ndarray:
         return self.linear_velocity
 
-    def get_pose(self) -> jnp.ndarray:
-        return jnp.concatenate([self.position, self.orientation])
+    def get_pose(self) -> jaxlie.SE3:
+        return jaxlie.SE3.from_rotation_and_translation(
+            self.get_orientation(), self.get_position()
+        )
 
     def get_velocity(self) -> jnp.ndarray:
         return jnp.concatenate([self.angular_velocity, self.linear_velocity])
@@ -96,15 +103,25 @@ class WindState:
         return jnp.concatenate([self.velocity, jnp.ndarray([self.density])])
 
 
+@dataclass
+class TetherModel:
+    anchor_position: jnp.ndarray
+
+
 # @register_pytree_node_class
 class TetherState:
     # Dimension of state vector
     size = 2
 
-    def __init__(self, x):
+    def __init__(self, model, x):
         assert x.shape == (self.size,)
-
+        self.model = model
         self.position, self.velocity = x
+
+    def get_tension(self) -> float:
+        # TODO: It seems that the control inputs -- motor torques -- will have
+        # to be passed into the tether state
+        return 1.0
 
     def get_vector(self) -> jnp.ndarray:
         jnp.ndarray([self.position, self.velocity])
@@ -115,15 +132,13 @@ class State:
         self,
         kite: KiteState,
         wind: WindState,
-        left_tether: TetherState,
-        right_tether: TetherState,
+        tethers: list[TetherState],
     ):
         self.kite = kite
         self.wind = wind
-        self.left_tether = left_tether
-        self.right_tether = right_tether
+        self.tethers = tethers
 
-        self.substates = [self.kite, self.wind, self.left_tether, self.right_tether]
+        self.substates = [self.kite, self.wind] + self.tethers
 
     def get_airspeed(self) -> float:
         """Compute the airspeed of the kite."""
@@ -168,7 +183,7 @@ class State:
         return cls.from_vector(children[0])
 
 
-def get_aerodynamic_coefficients(state) -> jnp.ndarray:
+def get_aerodynamic_coefficients(state: State) -> jnp.ndarray:
     # I'm not entirely clear on what this term should be called, but it appears in the computation
     # of the aerodynamic coefficients in http://avionics.nau.edu.ua/files/doc/VisSim.doc/6dof.pdf
     # on page 9. I believe it has something to do with the fact that the aerodynamic coefficients
@@ -200,7 +215,7 @@ def get_aerodynamic_coefficients(state) -> jnp.ndarray:
 
 
 # @jax.jit
-def get_aerodynamic_wrench(state) -> jnp.ndarray:
+def get_aerodynamic_wrench(state: State) -> jnp.ndarray:
     """Compute the aerodynamic wrench on the kite.
 
     Args:
@@ -241,16 +256,41 @@ def get_aerodynamic_wrench(state) -> jnp.ndarray:
     )
 
 
+def get_tether_wrench(state: State) -> jnp.ndarray:
+    """Compute the wrench resulting from the tethers on the kite"""
+    total_wrench = jnp.zeros(6)
+    for i, tether_state in enumerate(state.tethers):
+        # Comopute a vector from the kite attachment point to the anchor point
+        # in the world frame
+        attachment_point = (
+            state.kite.get_pose() @ state.kite.model.tether_attachments[i]
+        )
+        anchor_point = tether_state.model.anchor_position
+        tether_vector = anchor_point - attachment_point
+        # The tether force in the world frame applied at the kite attachment point
+        tether_force = (
+            tether_vector / jnp.linalg.norm(tether_vector) * tether_state.get_tension()
+        )
+        # The tether force in the kite frame applied at the kite attachment point
+        tether_force = state.kite.get_orientation().inverse() @ tether_force
+        # The wrench in the kite frame applied at the kite attachment point
+        tether_wrench = jnp.concatenate([jnp.zeros(3), tether_force])
+        # The wrench in the kite frame applied at the kite center of mass
+        total_wrench += translate_wrench(tether_wrench, attachment_point)
+
+    return total_wrench
+
+
 if __name__ == "__main__":
     wind_x = jnp.array([1, 0.1, 0, 1.225])
     wind_state = WindState(wind_x)
     kite_x = jnp.concatenate([jaxlie.SO3.identity().as_quaternion_xyzw(), jnp.zeros(9)])
     kite_model = KiteModel()
     kite_state = KiteState(kite_model, kite_x)
-    left_tether = TetherState(jnp.zeros(2))
-    right_tether = TetherState(jnp.zeros(2))
-    state = State(kite_state, wind_state, left_tether, right_tether)
+    left_tether = TetherState(TetherModel(jnp.zeros(3)), jnp.zeros(2))
+    right_tether = TetherState(TetherModel(jnp.zeros(3)), jnp.zeros(2))
+    state = State(kite_state, wind_state, [left_tether, right_tether])
 
     print(get_aerodynamic_wrench(state))
     print(get_aerodynamic_coefficients(state))
-
+    print(get_tether_wrench(state))
