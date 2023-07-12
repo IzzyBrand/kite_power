@@ -34,10 +34,12 @@ class KiteModel:
     velocity_coefficients = jnp.array([-0.15, -0.165, -0.002, 0, 0, 0])
 
     # Positions of the tether attachments points in the kite frame
-    tether_attachments = jnp.array([
-        [0, 2.9, -0.5],
-        [0, -2.9, -0.5],
-    ])
+    tether_attachments = jnp.array(
+        [
+            [0, 2.9, -0.5],
+            [0, -2.9, -0.5],
+        ]
+    )
 
 
 # @register_pytree_node_class

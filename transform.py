@@ -2,6 +2,7 @@ import jax.numpy as jnp
 
 import jaxlie
 
+
 def translate_wrench(wrench: jnp.ndarray, translation: jnp.ndarray) -> jnp.ndarray:
     """Compute a new wrench by translating the point of application."""
     return jnp.concatenate(
@@ -11,6 +12,7 @@ def translate_wrench(wrench: jnp.ndarray, translation: jnp.ndarray) -> jnp.ndarr
         ]
     )
 
+
 def rotate_wrench(wrench: jnp.ndarray, rotation: jaxlie.SO3) -> jnp.ndarray:
     """Compute a new wrench by rotating the frame of reference."""
     return jnp.concatenate(
@@ -19,6 +21,7 @@ def rotate_wrench(wrench: jnp.ndarray, rotation: jaxlie.SO3) -> jnp.ndarray:
             rotation * wrench[3:],
         ]
     )
+
 
 def transform_wrench(wrench: jnp.ndarray, transform: jaxlie.SE3) -> jnp.ndarray:
     """Compute a new wrench by applying a transform."""

@@ -122,6 +122,7 @@ def make_homogenous_transform(R: jnp.ndarray, t: jnp.ndarray) -> jnp.ndarray:
 # S3 lie group (quaternions)
 ###############################################################################
 
+
 @register_pytree_node_class
 class S3:
     def __init__(self, q):
@@ -288,7 +289,6 @@ class S3:
         return jnp.allclose(self.q, other.q, **kwargs) or jnp.allclose(
             self.q, -other.q, **kwargs
         )
-
 
     def tree_flatten(self):
         return (self.q,), None

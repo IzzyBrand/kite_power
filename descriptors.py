@@ -5,6 +5,7 @@ from jax.tree_util import register_pytree_node_class
 import jax
 from jax.interpreters.partial_eval import DynamicJaxprTracer
 
+
 @dataclass
 @register_pytree_node_class
 class BaseModel:
@@ -16,6 +17,7 @@ class BaseModel:
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
+
 
 @dataclass
 @register_pytree_node_class
@@ -31,5 +33,3 @@ class BaseState:
         # print(cls, aux_data, children, children[0][0])
         # print(aux_data(*children[0]))
         return cls(aux_data.tree_unflatten(None, children[0]), children[1])
-
-
