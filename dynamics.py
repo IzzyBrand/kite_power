@@ -278,7 +278,7 @@ def get_tether_wrench(state: State) -> jnp.ndarray:
         # The wrench in the kite frame applied at the kite attachment point
         tether_wrench = jnp.concatenate([jnp.zeros(3), tether_force])
         # The wrench in the kite frame applied at the kite center of mass
-        total_wrench += translate_wrench(tether_wrench, attachment_point)
+        total_wrench += translate_wrench(attachment_point, tether_wrench)
 
     return total_wrench
 
