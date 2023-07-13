@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
 
-# @jdc.pytree_dataclass
+@jdc.pytree_dataclass
 class Params:
     # Kite physical properties
     mass: float = 4.0
@@ -33,21 +33,21 @@ class Params:
         ]
     )
     # Positions of the tether attachments in the world frame
-    anchor_positions: jnp.ndarray = jnp.zeros((2, 3))
+    anchor_positions = jnp.zeros((2, 3))
 
 
-class BaseState(abc.ABC):
-    """Base class for states requires classes to implement an `identity` method that returns an
-    instance of the class"""
+class ManifoldObjectBase(abc.ABC):
+    """Base class for states and control inputs requires classes to implement an `identity` method
+    that returns an instance of the class"""
     @classmethod
     @abc.abstractmethod
     def identity(cls):
         pass
 
-# Define a type variable that is a subclass of BaseState
-StateType = TypeVar("StateType", bound=BaseState)
+# Define a type variable that is a subclass of ManifoldObjectBase
+ManifoldObjectType = TypeVar("ManifoldObjectType", bound=ManifoldObjectBase)
 
-def vectorizeable(state_class: StateType) -> StateType:
+def vectorizeable(state_class: ManifoldObjectType) -> ManifoldObjectType:
     """Decorator that adds vectorization methods to a state class."""
 
     def decorator(cls):
@@ -64,11 +64,18 @@ def vectorizeable(state_class: StateType) -> StateType:
 
 @vectorizeable
 @jdc.pytree_dataclass
-class KiteState(BaseState):
+class KiteState(ManifoldObjectBase):
     R: jaxlie.SO3
     t: Annotated[jnp.ndarray, (3,)]
     w: Annotated[jnp.ndarray, (3,)]
     v: Annotated[jnp.ndarray, (3,)]
+
+    def get_pose(self) -> jaxlie.SE3:
+        return jaxlie.SE3.from_rotation_and_translation(self.R, self.t)
+
+    def get_body_frame_velocity(self):
+        R_inv = self.R.inverse()
+        return jnp.concatenate([R_inv @ self.v, R_inv @ self.w])
 
     @classmethod
     def identity(cls):
@@ -82,7 +89,7 @@ class KiteState(BaseState):
 
 @vectorizeable
 @jdc.pytree_dataclass
-class WindState(BaseState):
+class WindState(ManifoldObjectBase):
     v: Annotated[jnp.ndarray, (3,)]
     rho: Annotated[jnp.ndarray, (1,)]
 
@@ -96,7 +103,7 @@ class WindState(BaseState):
 
 @vectorizeable
 @jdc.pytree_dataclass
-class TetherState(BaseState):
+class TetherState(ManifoldObjectBase):
     l: Annotated[jnp.ndarray, (1,)]
     v: Annotated[jnp.ndarray, (1,)]
 
@@ -110,7 +117,7 @@ class TetherState(BaseState):
 
 @vectorizeable
 @jdc.pytree_dataclass
-class State(BaseState):
+class State(ManifoldObjectBase):
     kite: KiteState
     wind: WindState
     tethers: list[TetherState]
@@ -123,3 +130,14 @@ class State(BaseState):
             tethers=[TetherState.identity() for _ in range(2)],
         )
 
+
+@vectorizeable
+@jdc.pytree_dataclass
+class Control(ManifoldObjectBase):
+    tau: Annotated[jnp.ndarray, (2,)]
+
+    @classmethod
+    def identity(cls):
+        return cls(
+            tau=jnp.zeros(2),
+        )
