@@ -17,8 +17,8 @@ class Inertia:
     def matrix(self) -> jnp.ndarray:
         return jnp.array(
             [
-                [self.x, -self.xy, -self.xz],
-                [-self.xy, self.y, -self.yz],
-                [-self.xz, -self.yz, self.z],
+                [self.x, self.xy, self.xz],
+                [self.xy, self.y, self.yz],
+                [self.xz, self.yz, self.z],
             ]
         )

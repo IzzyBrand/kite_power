@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     control = Control(jnp.ones(2))
 
-    data = simulate(state, control, Params(), 0.001, 0.29)
+    data = simulate(state, control, Params(), 0.001, 0.25)
     plt.plot(data[:, :6], label=["r", "p", "y", "x", "y", "z"])
     plt.legend()
     plt.show()

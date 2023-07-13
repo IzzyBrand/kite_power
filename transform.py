@@ -22,8 +22,8 @@ def rotate_wrench(rotation: jaxlie.SO3, wrench: jnp.ndarray) -> jnp.ndarray:
 
     return jnp.concatenate(
         [
-            rotation * wrench[:3],
-            rotation * wrench[3:],
+            rotation @ wrench[:3],
+            rotation @ wrench[3:],
         ]
     )
 
@@ -33,8 +33,8 @@ def transform_wrench(transform: jaxlie.SE3, wrench: jnp.ndarray) -> jnp.ndarray:
     assert wrench.shape == (6,)
 
     return translate_wrench(
-        rotate_wrench(wrench, transform.rotation()),
-        transform.translation,
+        transform.translation(),
+        rotate_wrench(transform.rotation(), wrench),
     )
 
 
