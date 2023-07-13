@@ -44,6 +44,7 @@ def compute_global_acceleration(frame: Frame) -> jnp.ndarray:
             compute_global_pose(frame.relative_to).rotation(), frame.acceleration
         )
 
+
 def compute_global_frame(frame: Frame) -> Frame:
     return Frame(
         pose=compute_global_pose(frame),

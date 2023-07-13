@@ -7,11 +7,18 @@ from jaxlie.manifold._tree_utils import _map_group_trees
 import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
+from inertia import Inertia
+
 
 @jdc.pytree_dataclass
 class Params:
-    # Kite physical properties
+    gravity: float = 9.81
+
+    # Kite inertial properties
     mass: float = 4.0
+    inertia = Inertia(x=8.68, y=2.43, z=8.4, xz=0.33)
+
+    # Kite geometry
     surface_area: float = 12.0
     chord: float = 2
     wingspan: float = 6
@@ -39,27 +46,36 @@ class Params:
 class ManifoldObjectBase(abc.ABC):
     """Base class for states and control inputs requires classes to implement an `identity` method
     that returns an instance of the class"""
+
     @classmethod
     @abc.abstractmethod
     def identity(cls):
         pass
 
+
 # Define a type variable that is a subclass of ManifoldObjectBase
 ManifoldObjectType = TypeVar("ManifoldObjectType", bound=ManifoldObjectBase)
 
-def vectorizeable(state_class: ManifoldObjectType) -> ManifoldObjectType:
+
+def vectorizeable(cls: ManifoldObjectType) -> ManifoldObjectType:
     """Decorator that adds vectorization methods to a state class."""
 
-    def decorator(cls):
-        cls_instance = cls.identity()
-        vec, cls.from_vector = ravel_pytree(cls_instance)
-        cls.vector = lambda self: ravel_pytree(self)[0]
-        cls.tangent = lambda self: _map_group_trees(lambda x: x.log(), lambda x: x, self)
-        cls.state_dim = vec.size
-        cls.tangent_dim = ravel_pytree(jaxlie.manifold.zero_tangents(cls_instance))[0].size
-        return cls
+    cls_instance = cls.identity()
+    vec, cls.from_vector = ravel_pytree(cls_instance)
+    cls.vector = lambda self: ravel_pytree(self)[0]
+    cls.state_dim = vec.size
 
-    return decorator(state_class)
+    tangent_instance = jaxlie.manifold.zero_tangents(cls_instance)
+    cls.tangent = lambda self: _map_group_trees(lambda x: x.log(), lambda x: x, self)
+    tangent_vec, from_tangent_vec = ravel_pytree(tangent_instance)
+    cls.tangent_dim = tangent_vec.size
+
+    def __add__(self, other):
+        return jaxlie.manifold.rplus(self, from_tangent_vec(other))
+
+    cls.__add__ = __add__
+
+    return cls
 
 
 @vectorizeable
@@ -67,22 +83,22 @@ def vectorizeable(state_class: ManifoldObjectType) -> ManifoldObjectType:
 class KiteState(ManifoldObjectBase):
     R: jaxlie.SO3
     t: Annotated[jnp.ndarray, (3,)]
-    w: Annotated[jnp.ndarray, (3,)]
+    omega: Annotated[jnp.ndarray, (3,)]
     v: Annotated[jnp.ndarray, (3,)]
 
     def get_pose(self) -> jaxlie.SE3:
         return jaxlie.SE3.from_rotation_and_translation(self.R, self.t)
 
-    def get_body_frame_velocity(self):
+    def local_velocity(self):
         R_inv = self.R.inverse()
-        return jnp.concatenate([R_inv @ self.v, R_inv @ self.w])
+        return jnp.concatenate([R_inv @ self.v, R_inv @ self.omega])
 
     @classmethod
     def identity(cls):
         return cls(
             R=jaxlie.SO3.identity(),
             t=jnp.zeros(3),
-            w=jnp.zeros(3),
+            omega=jnp.zeros(3),
             v=jnp.zeros(3),
         )
 
@@ -103,31 +119,15 @@ class WindState(ManifoldObjectBase):
 
 @vectorizeable
 @jdc.pytree_dataclass
-class TetherState(ManifoldObjectBase):
-    l: Annotated[jnp.ndarray, (1,)]
-    v: Annotated[jnp.ndarray, (1,)]
-
-    @classmethod
-    def identity(cls):
-        return cls(
-            l=jnp.zeros(1),
-            v=jnp.zeros(1),
-        )
-
-
-@vectorizeable
-@jdc.pytree_dataclass
 class State(ManifoldObjectBase):
     kite: KiteState
     wind: WindState
-    tethers: list[TetherState]
 
     @classmethod
     def identity(cls):
         return cls(
             kite=KiteState.identity(),
             wind=WindState.identity(),
-            tethers=[TetherState.identity() for _ in range(2)],
         )
 
 
