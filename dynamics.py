@@ -27,13 +27,13 @@ def get_dynamic_pressure(state: State) -> float:
 
 def get_angle_of_attack(state: State) -> float:
     """Compute the angle of attack."""
-    v = get_body_frame_wind_velocity(state)
+    v = -get_body_frame_wind_velocity(state)
     return atan2(v[2], v[0])
 
 
 def get_side_slip_angle(state: State) -> float:
     """Compute the side slip angle."""
-    v = get_body_frame_wind_velocity(state)
+    v = -get_body_frame_wind_velocity(state)
     return atan2(v[1], v[0])
 
 
@@ -152,18 +152,12 @@ def compute_wrench(state: State, control: Control, params: Params) -> jnp.ndarra
     )
 
 
-def rigid_body_acceleration(wrench: jnp.ndarray, m: float, I: jnp.ndarray):
+def compute_rigid_body_acceleration(wrench: jnp.ndarray, m: float, I: jnp.ndarray):
     """Returns the 6-dimensional acceleration vector of a rigid body."""
     return jnp.concatenate([jnp.linalg.solve(I, wrench[:3]), wrench[3:] / m])
     # return jnp.concatenate([jnp.linalg.inv(I) @ wrench[:3], wrench[3:] / m])
 
 
-if __name__ == "__main__":
-    state = State.identity()
-    control = Control.identity()
-    params = Params()
-
-    print(compute_aerodynamic_wrench(state, params))
-    print(compute_aerodynamic_coefficients(state, params))
-    print(compute_tether_wrench(state, control, params))
-    jaxlie.SO3.as_
+def compute_single_rigid_body_x_dot(velocity, wrench=jnp.zeros(6), m=1.0, I=jnp.eye(3)):
+    """Computes the derivative of the state of a rigid body."""
+    return jnp.concatenate([velocity, compute_rigid_body_acceleration(wrench, m, I)])

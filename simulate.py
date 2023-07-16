@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 from descriptors import *
-from dynamics import compute_wrench, rigid_body_acceleration
+from dynamics import compute_wrench, compute_single_rigid_body_x_dot
 
 WIND_SPEED = 1.0
 INITIAL_POSITION = jnp.array([0.0, 0.0, 2.0])
@@ -21,14 +21,13 @@ def forward_dynamics(x: State, u: Control, params: Params) -> jnp.ndarray:
     # Compute the wrench on the kite in the kite frame
     wrench = compute_wrench(x, u, params)
     # Compute the acceleration of the kite in the kite frame
-    kite_acceleration = rigid_body_acceleration(
-        wrench, params.mass, params.inertia.matrix()
+    kite_dot = compute_single_rigid_body_x_dot(
+        x.kite.velocity(), wrench, params.mass, params.inertia.matrix()
     )
-
     # There is no change in the wind state
     wind_dot = jnp.zeros(WindState.tangent_dim)
 
-    return jnp.concatenate([x.kite.velocity(), kite_acceleration, wind_dot])
+    return jnp.concatenate([kite_dot, wind_dot])
 
 
 def simulate(initial_state, control, params, dt, duration):
@@ -56,7 +55,7 @@ if __name__ == "__main__":
 
     control = Control(jnp.ones(2))
 
-    data = simulate(state, control, Params(), 0.001, 0.25)
+    data = simulate(state, control, Params(), 0.001, 1.0)
     plt.plot(data[:, :6], label=["r", "p", "y", "x", "y", "z"])
     plt.legend()
     plt.show()
