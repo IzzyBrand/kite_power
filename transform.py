@@ -10,7 +10,8 @@ def translate_wrench(translation: jnp.ndarray, wrench: jnp.ndarray) -> jnp.ndarr
 
     return jnp.concatenate(
         [
-            wrench[:3] + jnp.cross(translation, wrench[3:]),
+            # TODO: figure out if this needs to be positive or negative
+            wrench[:3] - jnp.cross(translation, wrench[3:]),
             wrench[3:],
         ]
     )

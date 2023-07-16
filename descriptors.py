@@ -40,7 +40,12 @@ class Params:
         ]
     )
     # Positions of the tether attachments in the world frame
-    anchor_positions = jnp.zeros((2, 3))
+    anchor_positions = jnp.array(
+        [
+            [0, 1.0, 0.0],
+            [0, -1.0, 0.0],
+        ]
+    )
 
 
 class ManifoldObjectBase(abc.ABC):

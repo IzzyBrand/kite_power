@@ -107,25 +107,33 @@ def compute_aerodynamic_wrench(state: State, params: Params) -> jnp.ndarray:
     )
 
 
+def compute_tether_vectors(state: State, params: Params) -> jnp.ndarray:
+    tether_attachments = jax.vmap(state.kite.pose().apply)(params.tether_attachments)
+    return tether_attachments - params.anchor_positions
+
+
+def compute_tether_lengths(state: State, params: Params) -> jnp.ndarray:
+    return jnp.linalg.norm(compute_tether_vectors(state, params), axis=1)
+
+
 def compute_tether_wrench(
     state: State, control: Control, params: Params
 ) -> jnp.ndarray:
     """Compute the wrench resulting from the tethers on the kite"""
     total_wrench = jnp.zeros(6)
+    tether_vectors = compute_tether_vectors(state, params)
+    tether_vectors = tether_vectors / jnp.linalg.norm(
+        tether_vectors, axis=1, keepdims=True
+    )
     for i in range(2):
-        # Comopute a vector from the kite attachment point to the anchor point
-        # in the world frame
-        attachment_point = state.kite.pose() @ params.tether_attachments[i]
-        anchor_point = params.anchor_positions[i]
-        tether_vector = anchor_point - attachment_point
         # The tether force in the world frame applied at the kite attachment point
-        tether_force = tether_vector / jnp.linalg.norm(tether_vector) * control.tau[i]
+        tether_force = -tether_vectors[i] * jnp.maximum(0.0, control.tau[i])
         # The tether force in the kite frame applied at the kite attachment point
         tether_force = state.kite.R.inverse() @ tether_force
         # The wrench in the kite frame applied at the kite attachment point
         tether_wrench = jnp.concatenate([jnp.zeros(3), tether_force])
         # The wrench in the kite frame applied at the kite center of mass
-        total_wrench += translate_wrench(attachment_point, tether_wrench)
+        total_wrench += translate_wrench(params.tether_attachments[i], tether_wrench)
 
     return total_wrench
 
