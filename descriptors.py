@@ -80,18 +80,21 @@ def vectorizeable(cls: ManifoldObjectType) -> ManifoldObjectType:
 
 @vectorizeable
 @jdc.pytree_dataclass
-class KiteState(ManifoldObjectBase):
+class SingleRigidBodyState(ManifoldObjectBase):
+    # Rotation
     R: jaxlie.SO3
+    # Translation
     t: Annotated[jnp.ndarray, (3,)]
+    # Angular velocity in the kite frame
     omega: Annotated[jnp.ndarray, (3,)]
+    # Linear velocity in the kite frame
     v: Annotated[jnp.ndarray, (3,)]
 
-    def get_pose(self) -> jaxlie.SE3:
+    def pose(self) -> jaxlie.SE3:
         return jaxlie.SE3.from_rotation_and_translation(self.R, self.t)
 
-    def local_velocity(self):
-        R_inv = self.R.inverse()
-        return jnp.concatenate([R_inv @ self.v, R_inv @ self.omega])
+    def velocity(self) -> jnp.ndarray:
+        return jnp.concatenate([self.omega, self.v])
 
     @classmethod
     def identity(cls):
@@ -101,6 +104,9 @@ class KiteState(ManifoldObjectBase):
             omega=jnp.zeros(3),
             v=jnp.zeros(3),
         )
+
+
+KiteState = SingleRigidBodyState
 
 
 @vectorizeable

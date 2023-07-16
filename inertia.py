@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from functools import cache
 
 import jax_dataclasses as jdc
@@ -21,4 +23,12 @@ class Inertia:
                 [self.xy, self.y, self.yz],
                 [self.xz, self.yz, self.z],
             ]
+        )
+
+    @classmethod
+    def from_box_dimensions(cls, m, x, y, z):
+        return cls(
+            x=m * (y ** 2 + z ** 2) / 12,
+            y=m * (x ** 2 + z ** 2) / 12,
+            z=m * (x ** 2 + y ** 2) / 12,
         )

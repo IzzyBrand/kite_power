@@ -25,12 +25,10 @@ def forward_dynamics(x: State, u: Control, params: Params) -> jnp.ndarray:
         wrench, params.mass, params.inertia.matrix()
     )
 
-    kite_velocity = x.kite.local_velocity()
-
     # There is no change in the wind state
     wind_dot = jnp.zeros(WindState.tangent_dim)
 
-    return jnp.concatenate([kite_velocity, kite_acceleration, wind_dot])
+    return jnp.concatenate([x.kite.velocity(), kite_acceleration, wind_dot])
 
 
 def simulate(initial_state, control, params, dt, duration):
