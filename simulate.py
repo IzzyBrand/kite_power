@@ -1,13 +1,15 @@
 import jax
 import jax_dataclasses as jdc
 import jax.numpy as jnp
+import jaxlie
 import matplotlib.pyplot as plt
 
 from descriptors import *
 from dynamics import compute_wrench, compute_single_rigid_body_x_dot
+from visualizer import Visualizer
 
 WIND_SPEED = 1.0
-INITIAL_POSITION = jnp.array([0.0, 0.0, 2.0])
+INITIAL_POSITION = jnp.array([0.0, 0.0, 10.0])
 
 
 @jax.jit
@@ -34,7 +36,7 @@ def simulate(initial_state, control, params, dt, duration):
     """Simulate the kite dynamics forward in time."""
     # Set up initial state
     state = initial_state
-    log = [state.tangent().vector()]
+    log = [state]
     # Iterate over the simulation duration
     for _ in range(int(duration / dt)):
         # Compute the state derivative
@@ -42,20 +44,27 @@ def simulate(initial_state, control, params, dt, duration):
         # Integrate forward in time
         state = euler_step(state, x_dot, dt)
         # Log the state
-        log.append(state.tangent().vector())
+        log.append(state)
 
-    return jnp.stack(log, axis=0)
+    return log
 
 
 if __name__ == "__main__":
     # Set up initial state
     with jdc.copy_and_mutate(State.identity()) as state:
+        state.kite.R = jaxlie.SO3.from_rpy_radians(0.1, 0.1, 0.1)
         state.wind.v = jnp.array([-WIND_SPEED, 0.0, 0.0])
         state.kite.t = INITIAL_POSITION
 
     control = Control(jnp.ones(2))
 
-    data = simulate(state, control, Params(), 0.001, 1.0)
-    plt.plot(data[:, :6], label=["r", "p", "y", "x", "y", "z"])
-    plt.legend()
-    plt.show()
+    log = simulate(state, control, Params(), 0.001, 10.0)
+
+    # data = jnp.stack([l.kite.t for l in log], axis=0)
+    # plt.plot(data)
+    # plt.show()
+
+    vis = Visualizer().open()
+    vis.add_kite(Params())
+    for state in log[::10]:
+        vis.draw_state(state, rate=0.01)
