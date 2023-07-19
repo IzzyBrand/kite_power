@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 import jaxlie
 import jax_dataclasses as jdc
-import meshcat
+import matplotlib.pyplot as plt
 
 from inertia import Inertia
 from descriptors import SingleRigidBodyState, State
@@ -27,7 +27,7 @@ def test_get_airspeed():
 
     # If the kite and the wind are moving in opposite directions, the airspeed is double
     with jdc.copy_and_mutate(x) as x:
-        x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, 0.0, jnp.pi)
+        x.kite.v = jnp.array([-1.0, 0.0, 0.0])
         assert get_airspeed(x) == 2.0
 
 
@@ -35,19 +35,20 @@ def test_get_angle_of_attack():
     # Kite stationary -- direct headwind
     with jdc.copy_and_mutate(State.identity()) as x:
         x.wind.v = jnp.array([-1.0, 0.0, 0.0])
-        assert get_angle_of_attack(x) == 0.0
+        print(get_angle_of_attack(x))
+        assert jnp.isclose(get_angle_of_attack(x), 0.0)
 
-    # Pitch the kite up
+    # Pitch the kite down
     theta = 0.1
     with jdc.copy_and_mutate(x) as x:
         x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, theta, 0.0)
-        assert jnp.isclose(get_angle_of_attack(x), theta)
+        assert jnp.isclose(get_angle_of_attack(x), -theta)
 
-    # Pitch the kite down, and now it's moving
+    # Reset the pitch, and move the kite up
     with jdc.copy_and_mutate(x) as x:
-        x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, -theta, 0.0)
-        x.kite.v = jnp.array([1.0, 0.0, 0.0])
-        assert jnp.isclose(get_angle_of_attack(x), -0.5 * theta)
+        x.kite.R = jaxlie.SO3.identity()
+        x.kite.v = jnp.array([0.0, 0.0, 1.0])
+        assert jnp.isclose(get_angle_of_attack(x), -0.25 * jnp.pi)
 
 
 def test_get_side_slip_angle():
@@ -56,17 +57,17 @@ def test_get_side_slip_angle():
         x.wind.v = jnp.array([-1.0, 0.0, 0.0])
         assert get_side_slip_angle(x) == 0.0
 
-    # Pitch the kite up
+    # Yaw the kite to the left
     theta = 0.1
     with jdc.copy_and_mutate(x) as x:
-        x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, 0.0, -theta)
+        x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, 0.0, theta)
         assert jnp.isclose(get_side_slip_angle(x), theta)
 
-    # Pitch the kite down, and now it's moving
+    # Reset the pitch and have it slide sideways
     with jdc.copy_and_mutate(x) as x:
-        x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, 0.0, theta)
-        x.kite.v = jnp.array([1.0, 0.0, 0.0])
-        assert jnp.isclose(get_side_slip_angle(x), -0.5 * theta)
+        x.kite.R = jaxlie.SO3.identity()
+        x.kite.v = jnp.array([0.0, 1.0, 0.0])
+        assert jnp.isclose(get_side_slip_angle(x), -0.25 * jnp.pi)
 
 
 def test_linear_and_angular_velocity_independent_under_integration():
@@ -76,8 +77,8 @@ def test_linear_and_angular_velocity_independent_under_integration():
         x2.omega = jnp.ones(3)
 
     for _ in range(10):
-        x1 = x1 + compute_single_rigid_body_x_dot(x1.velocity())
-        x2 = x2 + compute_single_rigid_body_x_dot(x2.velocity())
+        x1 = x1 + apply_wrench(x1, jnp.zeros(6))
+        x2 = x2 + apply_wrench(x2, jnp.zeros(6))
 
     # Make sure that both states translated
     assert not jnp.allclose(jnp.zeros(3), x1.t)
@@ -89,11 +90,131 @@ def test_linear_and_angular_velocity_independent_under_integration():
     assert jnp.allclose(x1.t, x2.t)
 
 
+def test_pitch_only_aerodynamic_wrench():
+    with jdc.copy_and_mutate(State.identity()) as x:
+        x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, jnp.radians(-30.0), 0.0)
+        x.wind.v = jnp.array([-1.0, 0.0, 0.0])
+
+    # Check that the kite's orientation results in the nose pointing up
+    assert (x.kite.R @ jnp.array([1.0, 0.0, 0.0]))[2] > 0.0
+    # And also verify that the angle of attack is positive, as excpected
+    assert get_angle_of_attack(x) > 0.0
+
+    # Compute the aerodynamic wrench and break out it's components. Note that the force component of
+    # the wrench is expressed in the body frame.
+    W = compute_aerodynamic_wrench(x, Params())
+    roll, _, yaw = W[:3]
+    drag, lateral, lift = x.kite.R @ W[3:]
+
+    assert jnp.isclose(roll, 0.0)
+    assert jnp.isclose(yaw, 0.0)
+    assert jnp.isclose(lateral, 0.0)
+    assert drag < 0.0
+    assert lift > 0.0
+
+    # If we fly backward, the draw and lift are appropriately flipped
+    with jdc.copy_and_mutate(x) as x:
+        x.wind.v = jnp.array([1.0, 0.0, 0.0])
+
+    W = compute_aerodynamic_wrench(x, Params())
+    drag, _, lift = x.kite.R @ W[3:]
+    assert drag > 0.0
+    assert lift < 0.0
+
+
+def test_yaw_only_aerodynamic_wrench():
+    with jdc.copy_and_mutate(State.identity()) as x:
+        x.kite.R = jaxlie.SO3.from_rpy_radians(0.0, 0.0, jnp.radians(30.0))
+        x.wind.v = jnp.array([-1.0, 0.0, 0.0])
+
+    # Check that the kite's orientation results in the nose pointing to the left
+    assert (x.kite.R @ jnp.array([1.0, 0.0, 0.0]))[1] > 0.0
+
+    W = compute_aerodynamic_wrench(x, Params())
+    drag, lateral, _ = x.kite.R @ W[3:]
+
+    # Expect a lateral force in the direction opposite the nose
+    assert lateral < 0.0
+    # And there should be the usual drag
+    assert drag < 0.0
+
+
+def test_roll_and_pitch_aerodynamic_wrench():
+    with jdc.copy_and_mutate(State.identity()) as x:
+        x.kite.R = jaxlie.SO3.from_rpy_radians(
+            jnp.radians(-30.0), jnp.radians(-30.0), 0.0
+        )
+        x.wind.v = jnp.array([-1.0, 0.0, 0.0])
+
+    # Check that the kite's orientation results in the nose pointing up
+    assert (x.kite.R @ jnp.array([1.0, 0.0, 0.0]))[2] > 0.0
+    # And also that the left wingtip is pointing down
+    assert (x.kite.R @ jnp.array([0.0, 1.0, 0.0]))[2] < 0.0
+
+    W = compute_aerodynamic_wrench(x, Params())
+    drag, lateral, lift = x.kite.R @ W[3:]
+
+    # There should a lateral force to the left resulting from the lift component of the banked kite
+    assert drag < 0.0
+    assert lateral > 0.0
+    assert lift > 0.0
+
+
+def test_aerodynamic_rotational_damping():
+    prng_key = jax.random.PRNGKey(0)
+    for k in jax.random.split(prng_key, 10):
+        with jdc.copy_and_mutate(State.identity()) as x:
+            x.kite.omega = 10.0 * jnp.sign(jax.random.normal(k, (3,)))
+            x.wind.v = jnp.array([-1e-6, 0, 0])
+
+        W = compute_aerodynamic_wrench(x, Params())
+        assert jnp.all(jnp.sign(W[:3]) == -jnp.sign(x.kite.omega))
+
+
+def test_tethers_can_only_pull():
+    u_pull = Control(jnp.ones(2))
+    u_push = Control(-jnp.ones(2))
+
+    with jdc.copy_and_mutate(State.identity()) as x:
+        x.kite.t = jnp.array([10.0, 0.0, 0.0])
+        assert compute_tether_wrench(x, u_pull, Params())[3] < 0.0
+        assert compute_tether_wrench(x, u_push, Params())[3] == 0.0
+
+    with jdc.copy_and_mutate(State.identity()) as x:
+        x.kite.t = jnp.array([0.0, -10.0, 0.0])
+        assert compute_tether_wrench(x, u_pull, Params())[4] > 0.0
+        assert compute_tether_wrench(x, u_push, Params())[4] == 0.0
+
+    with jdc.copy_and_mutate(State.identity()) as x:
+        x.kite.t = jnp.array([0.0, 0.0, 10.0])
+        assert compute_tether_wrench(x, u_pull, Params())[5] < 0.0
+        assert compute_tether_wrench(x, u_push, Params())[5] == 0.0
+
+
+def plot_angle_of_attack_and_side_slip_angle():
+    def aoa(theta):
+        with jdc.copy_and_mutate(State.identity()) as x:
+            x.wind.v = jnp.array([-1.0, 0, 0])
+            x.kite.R = jaxlie.SO3.from_rpy_radians(0, theta, 0)
+            return get_angle_of_attack(x)
+
+    def ssa(theta):
+        with jdc.copy_and_mutate(State.identity()) as x:
+            x.wind.v = jnp.array([-1.0, 0, 0])
+            x.kite.R = jaxlie.SO3.from_rpy_radians(0, 0, theta)
+            return get_side_slip_angle(x)
+
+    theta = jnp.linspace(-4, 4, 100)
+    plt.plot(theta, jax.vmap(aoa)(theta))
+    plt.plot(theta, jax.vmap(ssa)(theta))
+    plt.show()
+
+
 # @jax.jit
 # def forward_dynamics(x, params):
 #     W_c = compute_coriolis_wrench(x.omega, params.I)
 #     W_g = compute_gravity_wrench(x.R, params.m, params.g)
-#     return compute_single_rigid_body_x_dot(x.velocity(), W_c + W_g, params.m, params.I)
+#     return apply_wrench(x, W_c + W_g, params.m, params.I)
 
 
 # @jax.jit
@@ -161,6 +282,7 @@ def test_linear_and_angular_velocity_independent_under_integration():
 #     visualize_log(log)
 
 
-# if __name__ == "__main__":
-#     simulate_box_parabola()
-#     # simulate_tennis_racket_theorem()
+if __name__ == "__main__":
+    test_aerodynamic_rotational_damping()
+#     # simulate_box_parabola()
+#     simulate_tennis_racket_theorem()

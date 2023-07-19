@@ -15,8 +15,8 @@ class Params:
     gravity: float = 9.81
 
     # Kite inertial properties
-    mass: float = 4.0
-    inertia = Inertia(x=8.68, y=2.43, z=8.4, xz=0.33)
+    mass: float = 1.0
+    inertia = Inertia.from_box_dimensions(1.0, 2.0, 6.0, 0.1)
 
     # Kite geometry
     surface_area: float = 12.0
@@ -25,18 +25,18 @@ class Params:
 
     # Aerodynamic coefficients as described in
     # http://avionics.nau.edu.ua/files/doc/VisSim.doc/6dof.pdf page 9
-    drag_coefficient = 0.53
-    angle_of_attack_coefficients = jnp.array([0, -0.7633, 0, 0.176, 0, -2.97])
-    side_slip_angle_coefficients = jnp.array([-0.1, 0, -0.027, 0, -1.57, 0])
+    drag_coefficient = 1.0
+    angle_of_attack_coefficients = jnp.array([0, 0.01, 0, -0.1, 0, 1.0])
+    side_slip_angle_coefficients = jnp.array([-0.1, 0, -0.01, 0, 1.0, 0])
     # Note that the linear velocity coefficients are all zero because the majority of the
     # aerodynamic forces are captured by the angle of attack and side slip angle coefficients
-    velocity_coefficients = jnp.array([-0.15, -0.165, -0.002, 0, 0, 0])
+    velocity_coefficients = jnp.array([-0.1, -0.1, -0.001, 0, 0, 0])
 
     # Positions of the tether attachments points in the kite frame
     tether_attachments = jnp.array(
         [
-            [0, 3.0, -0.5],
-            [0, -3.0, -0.5],
+            [0.5, 3.0, -1.0],
+            [0.5, -3.0, -1.0],
         ]
     )
     # Positions of the tether attachments in the world frame
@@ -46,6 +46,15 @@ class Params:
             [0, -1.0, 0.0],
         ]
     )
+
+    wind_matrix = jnp.array([
+        [   -0.1,    0.0,    0.0,    0.0,    0.0,    0.0],
+        [    0.0,  -0.01,    0.0,    0.0,    0.0,   -1.0],
+        [    0.0,    0.0,  -0.05,    0.0,    0.0,    0.0],
+        [    0.0,    0.0,    0.0,   -0.5,    0.0,    0.0],
+        [    0.0,    0.0,    0.0,    0.0,  -0.05,    0.0],
+        [    0.0,    0.0,    0.0,    0.0,    0.0,   -5.0],
+    ])
 
 
 class ManifoldObjectBase(abc.ABC):
@@ -90,16 +99,19 @@ class SingleRigidBodyState(ManifoldObjectBase):
     R: jaxlie.SO3
     # Translation
     t: Annotated[jnp.ndarray, (3,)]
-    # Angular velocity in the kite frame
+    # Angular velocity in the local frame
     omega: Annotated[jnp.ndarray, (3,)]
-    # Linear velocity in the kite frame
+    # Linear velocity in the global frame
     v: Annotated[jnp.ndarray, (3,)]
 
     def pose(self) -> jaxlie.SE3:
         return jaxlie.SE3.from_rotation_and_translation(self.R, self.t)
 
-    def velocity(self) -> jnp.ndarray:
-        return jnp.concatenate([self.omega, self.v])
+    def local_velocity(self) -> jnp.ndarray:
+        return jnp.concatenate([self.omega, self.R.inverse() @ self.v])
+
+    def global_velocity(self) -> jnp.ndarray:
+        return jnp.concatenate([self.R @ self.omega, self.v])
 
     @classmethod
     def identity(cls):
@@ -152,3 +164,18 @@ class Control(ManifoldObjectBase):
         return cls(
             tau=jnp.zeros(2),
         )
+
+
+# @jdc.pytree_dataclass
+# class Wrench:
+#     # The moment component (a torque)
+#     M = Annotated[jnp.ndarray, (3,)]
+#     # The force component
+#     F = Annotated[jnp.ndarray, (3,)]
+
+#     @classmethod
+#     def identity(cls):
+#         return cls(
+#             M = jnp.zeros(3),
+#             F = jnp.zeros(3),
+#         )

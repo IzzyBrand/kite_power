@@ -8,9 +8,9 @@ from descriptors import *
 from dynamics import *
 from visualizer import Visualizer
 
-WIND_SPEED = 1.0
-INITIAL_POSITION = jnp.array([0.0, 0.0, 10.0])
-TARGET_TETHER_LENGTHS = 10.0
+WIND_SPEED = 5.0
+INITIAL_POSITION = jnp.array([0.0, 0.0, 3.0])
+TARGET_TETHER_LENGTHS = 3.0
 
 
 @jax.jit
@@ -24,20 +24,24 @@ def forward_dynamics(x: State, u: Control, params: Params) -> jnp.ndarray:
     # Compute the wrench on the kite in the kite frame
     wrench = compute_wrench(x, u, params)
     # Compute the acceleration of the kite in the kite frame
-    kite_dot = compute_single_rigid_body_x_dot(
-        x.kite.velocity(), wrench, params.mass, params.inertia.matrix()
-    )
+    kite_dot = apply_wrench(x.kite, wrench, params.mass, params.inertia.matrix())
     # There is no change in the wind state
     wind_dot = jnp.zeros(WindState.tangent_dim)
 
     return jnp.concatenate([kite_dot, wind_dot])
 
 
+def compute_tether_jacobian(state, params):
+    return jax.jacobian(compute_tether_lengths, 0)(state, params).kite.t @ state.kite.v
+
+
 @jax.jit
 def controller(state: State, params: Params) -> Control:
-    kp = 100.0
+    kp = 1.0
+    kd = 1.0
     l = compute_tether_lengths(state, params)
-    return Control(kp * (TARGET_TETHER_LENGTHS - l))
+    l_dot = compute_tether_jacobian(state, params)
+    return Control(kp * (l - TARGET_TETHER_LENGTHS) + kd * l_dot)
 
 
 def simulate(initial_state, controller, params, dt, duration):
@@ -50,6 +54,8 @@ def simulate(initial_state, controller, params, dt, duration):
         u = controller(state, params)
         # Compute the state derivative
         x_dot = forward_dynamics(state, u, params)
+        if jnp.linalg.norm(x_dot) > 1e6:
+            break
         # Integrate forward in time
         state = euler_step(state, x_dot, dt)
         # Log the state
@@ -66,13 +72,16 @@ if __name__ == "__main__":
         state.wind.v = jnp.array([-WIND_SPEED, 0.0, 0.0])
         state.kite.t = INITIAL_POSITION
 
-    log = simulate(state, controller, params, 0.001, 10.0)
+    log = simulate(state, controller, params, 0.001, 20.0)
 
-    # data = jnp.stack([compute_tether_lengths(l, params) for l in log], axis=0)
-    # plt.plot(data)
-    # plt.show()
+    if len(log) < 100:
+        data = jnp.stack([l.kite.local_velocity() for l in log], axis=0)
+        plt.plot(data, label=["r", "p", "y", "x", "y", "z"])
+        plt.legend()
+        plt.show()
 
-    vis = Visualizer().open()
-    vis.add_kite(params)
-    for state in log[::10]:
-        vis.draw_state(state, rate=0.01)
+    else:
+        vis = Visualizer().open()
+        vis.add_kite(params)
+        for state in log[::10]:
+            vis.draw_state(state, rate=0.01)
