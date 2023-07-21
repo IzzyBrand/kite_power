@@ -117,13 +117,13 @@ def compute_aerodynamic_wrench(state: State, params: Params) -> jnp.ndarray:
     return params.wind_matrix @ (state.wind.rho * jnp.abs(wind_twist) * wind_twist)
 
 
-def compute_tether_vectors(state: State, params: Params) -> jnp.ndarray:
-    tether_attachments = jax.vmap(state.kite.pose().apply)(params.tether_attachments)
+def compute_tether_vectors(kite_state: KiteState, params: Params) -> jnp.ndarray:
+    tether_attachments = jax.vmap(kite_state.pose().apply)(params.tether_attachments)
     return tether_attachments - params.anchor_positions
 
 
-def compute_tether_lengths(state: State, params: Params) -> jnp.ndarray:
-    return jnp.linalg.norm(compute_tether_vectors(state, params), axis=1)
+def compute_tether_lengths(kite_state: KiteState, params: Params) -> jnp.ndarray:
+    return jnp.linalg.norm(compute_tether_vectors(kite_state, params), axis=1)
 
 
 @jax.jit
@@ -132,7 +132,7 @@ def compute_tether_wrench(
 ) -> jnp.ndarray:
     """Compute the wrench resulting from the tethers on the kite"""
     total_wrench = jnp.zeros(6)
-    tether_vectors = compute_tether_vectors(state, params)
+    tether_vectors = compute_tether_vectors(state.kite, params)
     tether_vectors = tether_vectors / jnp.linalg.norm(
         tether_vectors, axis=1, keepdims=True
     )

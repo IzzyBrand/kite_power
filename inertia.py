@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from functools import cache
-
 import jax_dataclasses as jdc
 import jax.numpy as jnp
 
@@ -15,7 +13,6 @@ class Inertia:
     xz: jdc.Static[float] = 0.0
     yz: jdc.Static[float] = 0.0
 
-    @cache
     def matrix(self) -> jnp.ndarray:
         return jnp.array(
             [

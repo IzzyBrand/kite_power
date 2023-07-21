@@ -47,14 +47,16 @@ class Params:
         ]
     )
 
-    wind_matrix = jnp.array([
-        [   -0.1,    0.0,    0.0,    0.0,    0.0,    0.0],
-        [    0.0,  -0.01,    0.0,    0.0,    0.0,   -1.0],
-        [    0.0,    0.0,  -0.05,    0.0,    0.0,    0.0],
-        [    0.0,    0.0,    0.0,   -0.5,    0.0,    0.0],
-        [    0.0,    0.0,    0.0,    0.0,  -0.05,    0.0],
-        [    0.0,    0.0,    0.0,    0.0,    0.0,   -5.0],
-    ])
+    wind_matrix = jnp.array(
+        [
+            [-0.1, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, -0.01, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, -0.05, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, -0.5, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, -0.05, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, -5.0],
+        ]
+    )
 
 
 class ManifoldObjectBase(abc.ABC):
@@ -85,7 +87,10 @@ def vectorizeable(cls: ManifoldObjectType) -> ManifoldObjectType:
     cls.tangent_dim = tangent_vec.size
 
     def __add__(self, other):
-        return jaxlie.manifold.rplus(self, from_tangent_vec(other))
+        if isinstance(other, SingleRigidBodyState):
+            return jaxlie.manifold.rplus(self, other)
+        else:
+            return jaxlie.manifold.rplus(self, from_tangent_vec(other))
 
     cls.__add__ = __add__
 

@@ -4,12 +4,13 @@ import jax.numpy as jnp
 import jaxlie
 import matplotlib.pyplot as plt
 
+from control import *
 from descriptors import *
 from dynamics import *
 from visualizer import Visualizer
 
-WIND_SPEED = 5.0
-INITIAL_POSITION = jnp.array([0.0, 0.0, 3.0])
+WIND_SPEED = 6.0
+INITIAL_POSITION = jnp.array([-5.0, 1.0, 3.0])
 TARGET_TETHER_LENGTHS = 3.0
 
 
@@ -31,17 +32,21 @@ def forward_dynamics(x: State, u: Control, params: Params) -> jnp.ndarray:
     return jnp.concatenate([kite_dot, wind_dot])
 
 
-def compute_tether_jacobian(state, params):
-    return jax.jacobian(compute_tether_lengths, 0)(state, params).kite.t @ state.kite.v
+def compute_tether_jacobian(kite_state, params):
+    return jax.jacobian(compute_tether_lengths, 0)(kite_state, params).t @ kite_state.v
 
 
-@jax.jit
-def controller(state: State, params: Params) -> Control:
-    kp = 1.0
-    kd = 1.0
-    l = compute_tether_lengths(state, params)
-    l_dot = compute_tether_jacobian(state, params)
-    return Control(kp * (l - TARGET_TETHER_LENGTHS) + kd * l_dot)
+# @jax.jit
+def controller(state: State, u: Control, params: Params) -> Control:
+    # print(dL_du(state, Control.identity(), params))
+    # kp = 1.0
+    # kd = 1.0
+    # l = compute_tether_lengths(state.kite, params)
+    # l_dot = compute_tether_jacobian(state.kite, params)
+    # return Control(kp * (l - TARGET_TETHER_LENGTHS) + kd * l_dot)
+    u = solve_for_u_with_optax(state, u, params)
+    print(u)
+    return Control(jnp.maximum(u.tau, jnp.ones_like(u.tau) * 1e-3))
 
 
 def simulate(initial_state, controller, params, dt, duration):
@@ -49,9 +54,10 @@ def simulate(initial_state, controller, params, dt, duration):
     # Set up initial state
     state = initial_state
     log = [state]
+    u = Control.identity()
     # Iterate over the simulation duration
     for _ in range(int(duration / dt)):
-        u = controller(state, params)
+        u = controller(state, u, params)
         # Compute the state derivative
         x_dot = forward_dynamics(state, u, params)
         if jnp.linalg.norm(x_dot) > 1e6:
@@ -67,12 +73,12 @@ def simulate(initial_state, controller, params, dt, duration):
 if __name__ == "__main__":
     params = Params()
     # Set up initial state
-    with jdc.copy_and_mutate(State.identity()) as state:
-        state.kite.R = jaxlie.SO3.from_rpy_radians(0.1, 0.1, 0.1)
-        state.wind.v = jnp.array([-WIND_SPEED, 0.0, 0.0])
-        state.kite.t = INITIAL_POSITION
+    with jdc.copy_and_mutate(State.identity()) as x:
+        x.kite.R = jaxlie.SO3.from_rpy_radians(0.01, 0.3, 0.01)
+        x.wind.v = jnp.array([-WIND_SPEED, 0.0, 0.0])
+        x.kite.t = INITIAL_POSITION
 
-    log = simulate(state, controller, params, 0.001, 20.0)
+    log = simulate(x, controller, params, 0.001, 3.0)
 
     if len(log) < 100:
         data = jnp.stack([l.kite.local_velocity() for l in log], axis=0)
@@ -83,5 +89,5 @@ if __name__ == "__main__":
     else:
         vis = Visualizer().open()
         vis.add_kite(params)
-        for state in log[::10]:
-            vis.draw_state(state, rate=0.01)
+        for x in log[::10]:
+            vis.draw_state(x, rate=0.01)
