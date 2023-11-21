@@ -126,6 +126,12 @@ def compute_tether_lengths(kite_state: KiteState, params: Params) -> jnp.ndarray
     return jnp.linalg.norm(compute_tether_vectors(kite_state, params), axis=1)
 
 
+def compute_tether_velocities(kite_state: KiteState, params: Params) -> jnp.ndarray:
+    tether_attachment_velocities = jnp.cross(kite_state.omega, params.tether_attachments) + kite_state.v
+
+
+
+
 @jax.jit
 def compute_tether_wrench(
     state: State, control: Control, params: Params

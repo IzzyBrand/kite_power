@@ -1,6 +1,20 @@
 import jax.numpy as jnp
 
 import jaxlie
+from misc_math import skew
+
+
+def screw_transform(R, t):
+    return jnp.block([
+        [R, skew(t) @ R],
+        [jnp.zeros((3, 3)), R]
+    ])
+
+# def spatial_motion_transform(R, t):
+#     return jnp.block([
+#         [R, jnp.zeros((3, 3))],
+#         [skew(t) @ R, R]
+#     ])
 
 
 def translate_wrench(translation: jnp.ndarray, wrench: jnp.ndarray) -> jnp.ndarray:
@@ -11,7 +25,7 @@ def translate_wrench(translation: jnp.ndarray, wrench: jnp.ndarray) -> jnp.ndarr
     return jnp.concatenate(
         [
             # TODO: figure out if this needs to be positive or negative
-            wrench[:3] - jnp.cross(translation, wrench[3:]),
+            wrench[:3] + jnp.cross(translation, wrench[3:]),
             wrench[3:],
         ]
     )
